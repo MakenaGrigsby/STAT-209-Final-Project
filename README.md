@@ -1,2 +1,49 @@
 # STAT-209-Final-Project
-Climate Change &amp; Mosquito Spread Diseases
+This repository contains the full analytical workflow and final report for a statistical investigation into the relationship between climate variability and the incidence of vector-borne diseases, with a focus on malaria and dengue. The analysis leverages global panel data to evaluate how environmental changes may influence disease dynamics under both current and projected climate conditions.
+
+We employed:
+- Random Forest for flexible, non-linear prediction.
+- Poisson Regression for modeling count data.
+- GAM-Negative Binomial for handling overdispersion and smooth nonlinear effects.
+  
+Climate scenarios modeled include warming, precipitation variability, extreme climate, and increased healthcare
+investment.
+
+Project Files
+-------------
+- climate_disease_complete.qmd: Quarto source file containing all R code, visualizations, simulation results, and
+narrative explanation.
+- STAT_209_Final_Project_Report.pdf: Formal project report summarizing objectives, methods, results, and
+conclusions.
+- README.pdf: Project documentation.
+
+Simulated Scenarios
+-------------------
+Scenario | Description
+----------------------|---------------------------------------------
+Baseline | Climate and healthcare as observed in 2000-2020
+Case 1: Warming | 10 C increase in average temperature
+Case 2: Warm + Rain | 10 C increase + 20% precipitation variability
+Case 3: Extreme Climate| Adds UV and AQI increase
+Case 4: Budget Increase| 50% increase in healthcare investment
+
+Key Results
+-----------
+Model | Disease | Max Change | Interpretation
+----------------------|---------|------------|----------------------------------------
+Random Forest | Dengue | +6.02% | Climate-driven increase
+Poisson Regression | Dengue | -0.14% | Less responsive to climate
+GAM-Negative Binomial | Malaria | +24.9% | Captures nonlinear, large impacts
+GAM-Negative Binomial | Dengue | -6.4% | Budget increase reduces disease burden
+
+R Packages Used
+---------------
+tidyverse, mgcv, ranger, yardstick, ggplot2, dplyr, tibble, kableExtra
+
+How to Run
+----------
+1. Open `climate_disease_complete.qmd` in RStudio.
+2. Install required packages.
+3. Read in .csv file
+4. Render via the "Render" button or with `quarto::quarto_render()`
+
