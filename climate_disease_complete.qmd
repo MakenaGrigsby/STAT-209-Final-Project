@@ -1,0 +1,593 @@
+---
+title: "R Code for Report"
+author: "Makena Grigsby, Sharvee Joshi"
+format: pdf
+editor: visual
+fontsize: 11pt
+mainfont: Times New Roman
+toc: true
+number-sections: true
+geometry: margin=1in
+---
+
+# Introduction
+
+This report investigates the relationship between climate variables and disease incidence (malaria and dengue) using statistical and machine learning models.
+
+# Data Overview
+
+```{r}
+
+climate_df <- read.csv('/Users/makena.g/Desktop/STAT 209 Project /climate_disease_dataset.csv')
+
+
+```
+
+# Exploratory Data Analysis
+
+```{r}
+# Distribution plots and summary statistics
+
+#necessary libraries
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(corrplot)
+library(knitr)
+library(purrr)
+library(tibble)
+library(kableExtra)
+library(RColorBrewer)
+library(poissonreg)
+library(tidymodels)
+
+
+
+
+#read in the data
+climate_df <- read.csv('/Users/makena.g/Desktop/STAT 209 Project /climate_disease_dataset.csv')
+
+#glimpse(climate_df)          
+#summary(climate_df)   
+#colSums(is.na(climate_df))  #no NA values were found. 
+#colnames(climate_df)
+
+climate_df_filtered <- climate_df %>%
+  filter(!country %in% c("Antarctica (the territory South of 60 deg S)", "Greenland"))
+
+#Select all numeric variables for summary
+vars <- dplyr::select(climate_df_filtered, malaria_cases, dengue_cases, 
+                      precipitation_mm, avg_temp_c,
+                      air_quality_index, uv_index,
+                      population_density, healthcare_budget)
+
+
+#summary table
+summary_table <- purrr::map_dfc(vars, ~ as.numeric(summary(.x)))
+
+#Add row labels
+ summary_table <- summary_table %>%
+  mutate(Statistic = names(summary(vars[[1]]))) %>%
+  dplyr::relocate(Statistic)
+
+#use kable
+summary_table %>%
+  kable(format.args = list(big.mark = ","),
+        col.names = c("Statistic", "Malaria", "Dengue", 
+                      "Precipitation (mm)", "Avg Temp (°C)", 
+                      "Air Quality Index", "UV Index", 
+                      "Population Density", "Healthcare Budget"),
+        align = "lcccccccc",
+        digits = 2,
+        caption = "Summary Statistics for Climate and Disease Variables (Excludes Greenland & Antarctica)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+
+
+
+climate_df_filtered %>%
+  pivot_longer(cols = c(malaria_cases, dengue_cases),
+               names_to = "disease", values_to = "cases") %>%
+  ggplot(aes(x = cases, fill = disease)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous(labels = scales::comma) +
+  labs(title = "Distribution of Malaria and Dengue Cases",
+       x = "Number of Cases", y = "Density") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+
+climate_df_filtered %>%
+  pivot_longer(cols = c(malaria_cases, dengue_cases),
+               names_to = "disease", values_to = "cases") %>%
+  ggplot(aes(x = disease, y = cases, fill = disease)) +
+  geom_boxplot(outlier.alpha = 0.3) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Boxplot Comparison of Malaria and Dengue Cases",
+       x = "Disease", y = "Number of Cases") +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "none")
+
+climate_df_filtered %>%
+  pivot_longer(cols = c(malaria_cases, dengue_cases),
+               names_to = "disease", values_to = "cases") %>%
+  ggplot(aes(x = cases, fill = disease)) +
+  geom_histogram(bins = 50, alpha = 0.6, position = "identity") +
+  scale_x_continuous(labels = scales::comma) +
+  facet_wrap(~ disease, scales = "free_y") +
+  labs(title = "Histogram of Malaria vs Dengue Cases",
+       x = "Number of Cases", y = "Frequency") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+
+
+
+
+# Plot disease by region
+climate_df_filtered %>%
+  pivot_longer(cols = c(malaria_cases, dengue_cases), 
+               names_to = "disease", values_to = "cases") %>%
+  group_by(region, disease) %>%
+  summarise(total_cases = sum(cases, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = region, y = total_cases, fill = disease)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("malaria_cases" = "#00BFC4",
+                               "dengue_cases" = "#F8766D")) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Total Disease Cases per Region (Excludes Greenland & Antarctica)",
+    x = "Region", y = "Total Cases"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Table
+disease_totals <- climate_df_filtered %>%
+  pivot_longer(cols = c(malaria_cases, dengue_cases),
+               names_to = "disease", values_to = "cases") %>%
+  group_by(region, disease) %>%
+  summarise(total_cases = sum(cases, na.rm = TRUE), .groups = "drop")
+
+disease_totals %>%
+  arrange(region, disease) %>%
+  kable(
+    format = "html",
+    col.names = c("Region", "Disease", "Total Cases"),
+    digits = 0,
+    align = "lcl",
+    format.args = list(big.mark = ","),
+    caption = "Total Disease Cases by Region (Excludes Greenland & Antarctica)"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+
+# Step 1: Create a filtered version
+climate_df_filtered <- climate_df %>%
+  filter(!country %in% c("Antarctica (the territory South of 60 deg S)", "Greenland")) %>%
+  mutate(date = make_date(year, month, 1))  # Create time variable
+
+#Plot 1: Average Monthly Disease Cases
+climate_df_filtered %>%
+  group_by(month) %>%
+  summarise(
+    avg_malaria = mean(malaria_cases, na.rm = TRUE),
+    avg_dengue = mean(dengue_cases, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = c(avg_malaria, avg_dengue),
+               names_to = "disease", values_to = "cases") %>%
+  mutate(month = factor(month, levels = 1:12, labels = month.abb)) %>%
+  ggplot(aes(x = month, y = cases, color = disease, group = disease)) +
+  geom_line(linewidth = 1) +
+  labs(title = "Average Monthly Disease Cases (Excludes Greenland & Antarctica)",
+       x = "Month", y = "Average Cases") +
+  theme(legend.position = "bottom")
+
+# Plot 2: Average Disease Cases by Temperature
+climate_df_filtered %>%
+  mutate(temp_bin = cut(avg_temp_c, breaks = seq(-5, 45, by = 2))) %>%
+  group_by(temp_bin) %>%
+  summarise(
+    avg_malaria = mean(malaria_cases, na.rm = TRUE),
+    avg_dengue = mean(dengue_cases, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = c(avg_malaria, avg_dengue), 
+               names_to = "disease", values_to = "cases") %>%
+  ggplot(aes(x = temp_bin, y = cases, color = disease, group = disease)) +
+  geom_line(linewidth = 1) +
+  labs(title = "Average Disease Cases by Temperature (Excludes Greenland & Antarctica)",
+       x = "Temperature (°C)", y = "Average Cases") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom")
+
+# Plot 3: Average Disease Cases by Precipitation
+climate_df_filtered %>%
+  mutate(precip_bin = cut(precipitation_mm, breaks = seq(0, 500, by = 25))) %>%
+  filter(!is.na(precip_bin)) %>%
+  group_by(precip_bin) %>%
+  summarise(
+    avg_malaria = mean(malaria_cases, na.rm = TRUE),
+    avg_dengue = mean(dengue_cases, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = c(avg_malaria, avg_dengue), 
+               names_to = "disease", values_to = "cases") %>%
+  ggplot(aes(x = precip_bin, y = cases, color = disease, group = disease)) +
+  geom_line(linewidth = 1) +
+  labs(title = "Average Disease Cases by Precipitation (Excludes Greenland & Antarctica)",
+       x = "Precipitation (mm)", y = "Average Cases") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom")
+
+
+climate_df_filtered %>%
+  mutate(month = factor(month, levels = 1:12, labels = month.abb)) %>%
+  pivot_longer(cols = c(malaria_cases, dengue_cases), 
+               names_to = "disease", values_to = "cases") %>%
+  ggplot(aes(x = month, y = cases, fill = disease)) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  labs(
+    title = "Monthly Distribution of Disease Cases (Excludes Greenland & Antarctica)",
+    x = "Month", y = "Number of Cases"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "bottom")
+
+
+```
+
+# Modeling Approaches
+
+```{r}
+safe_lag <- function(data, group_var, time_vars, lag_vars, n = 1) {
+  data %>%
+    arrange(across(all_of(c(group_var, time_vars)))) %>%
+    group_by(across(all_of(group_var))) %>%
+    mutate(across(all_of(lag_vars),
+                  ~lag(.x, n = n, default = NA),
+                  .names = "{.col}_lag{n}")) %>%
+    ungroup()
+}
+
+df <- df %>% 
+  filter(!country %in% c("Antarctica (the territory South of 60 deg S)", "Greenland"))
+
+
+df_lagged <- safe_lag(
+  data = df,
+  group_var = "country",
+  time_vars = c("year", "month"),
+  lag_vars = c("avg_temp_c", "precipitation_mm"),
+  n = 1
+)
+
+df_lagged <- df_lagged %>%
+  filter(!is.na(avg_temp_c_lag1), !is.na(precipitation_mm_lag1))
+
+df <- df_lagged %>%
+  dplyr::select(-avg_temp_c, -precipitation_mm)
+
+
+# df %>% 
+#   summarise(
+#     mean_temp = mean(avg_temp_c, na.rm = TRUE),
+#     sd_temp = sd(avg_temp_c, na.rm = TRUE),
+#     mean_precip = mean(precipitation_mm, na.rm = TRUE),
+#     sd_precip = sd(precipitation_mm, na.rm = TRUE),
+#     mean_uv = mean(uv_index, na.rm = TRUE),
+#     sd_uv = sd(uv_index, na.rm = TRUE),
+#     mean_aqi = mean(air_quality_index, na.rm = TRUE),
+#     sd_aqi = sd(air_quality_index, na.rm = TRUE)
+#  )
+
+df$region <- as.factor(df$region)
+df$country <- as.factor(df$country)
+df$month <- as.factor(df$month)
+df$year <- as.factor(df$year)
+df <- df %>%
+  select(-malaria_cases)
+
+set.seed(209)
+data_split <- initial_split(df, prop = 0.6, strata = dengue_cases)
+train_data <- training(data_split)
+test_data  <- testing(data_split)
+
+dengue_recipe <- recipe(dengue_cases ~ ., data = train_data) %>%
+  step_dummy(all_nominal_predictors())   # convert factors to dummies
+```
+
+## Random Forest
+
+```{r}
+rf_spec <- rand_forest(
+  mode = "regression",
+  mtry = 3,
+  trees = 500
+) %>%
+  set_engine("ranger", importance = "impurity")
+dengue_wf <- workflow() %>%
+  add_recipe(dengue_recipe) %>%
+  add_model(rf_spec)
+
+# Fit the model
+rf_fit <- dengue_wf %>%
+  fit(data = train_data)
+
+# Predict on test data
+rf_preds <- predict(rf_fit, test_data) %>%
+  bind_cols(test_data)
+
+# Evaluate performance
+metrics(rf_preds, truth = dengue_cases, estimate = .pred)
+
+# R-squared and RMSE
+rf_preds %>%
+  metrics(truth = dengue_cases, estimate = .pred)
+
+rf_fit %>%
+  extract_fit_parsnip() %>%
+  vip(num_features = 10, geom = "col")
+
+```
+
+## Poisson Regression
+
+```{r}
+poisson_spec <- 
+  poisson_reg(mode = "regression") %>%
+  set_engine("glm", family = poisson())
+
+dengue_wf <- workflow() %>%
+  add_recipe(dengue_recipe) %>%
+  add_model(poisson_spec)
+
+# Fit the model
+poisson_fit <- dengue_wf %>%
+  fit(data = train_data)
+
+# Predict on test data
+p_pred <- predict(poisson_fit, test_data) %>%
+  bind_cols(test_data)
+
+# Evaluate performance
+metrics(p_pred, truth = dengue_cases, estimate = .pred)
+
+# R-squared and RMSE
+p_pred %>%
+  metrics(truth = dengue_cases, estimate = .pred)
+
+poisson_fit %>%
+  extract_fit_parsnip() %>%
+  vip(num_features = 10, geom = "col")
+
+```
+
+## GAM with Negative Binomial
+
+```{r}
+# Fit GAM with smooth climate effects
+gam_model <- gam(malaria_cases ~ 
+                   s(avg_temp_c_lag1) +
+                   s(precipitation_mm_lag1) +
+                   s(uv_index) +
+                   s(air_quality_index) +
+                   population_density +  # linear term
+                   healthcare_budget,    # linear term
+                 family = nb(),
+                 data = df)
+summary(gam_model)
+plot(gam_model, pages = 1)
+
+# Ensure categorical variables are factors
+df$region <- as.factor(df$region)
+df$country <- as.factor(df$country)
+df$month <- as.factor(df$month)
+df$year <- as.factor(df$year)
+
+# -----------------------------
+# GAM-NB for Malaria
+# -----------------------------
+gam_nb_malaria <- gam(
+  malaria_cases ~ 
+    s(avg_temp_c_lag1) +
+    s(precipitation_mm_lag1) +
+    s(uv_index) +
+    s(air_quality_index) +
+    population_density +
+    healthcare_budget,
+  family = nb(),
+  data = df
+)
+
+# Prediction and RMSE for malaria
+malaria_preds <- predict(gam_nb_malaria, newdata = df, type = "response")
+malaria_rmse <- rmse_vec(truth = df$malaria_cases, estimate = malaria_preds)
+malaria_r2 <- rsq_vec(truth = df$malaria_cases, estimate = malaria_preds)
+
+# Marginal R^2 function
+compute_marginal_r2_nb <- function(model) {
+  mu_hat <- predict(model, type = "response")
+  var_fixed <- var(mu_hat)
+  theta <- model$family$getTheta(TRUE)
+  var_resid <- mean(mu_hat + (mu_hat^2 / theta))
+  var_total <- var_fixed + var_resid
+  r2_marginal <- var_fixed / var_total
+  return(r2_marginal)
+}
+
+malaria_r2_marginal <- compute_marginal_r2_nb(gam_nb_malaria)
+
+# -----------------------------
+# GAM-NB for Dengue
+# -----------------------------
+gam_nb_dengue <- gam(
+  dengue_cases ~ 
+    s(avg_temp_c_lag1) +
+    s(precipitation_mm_lag1) +
+    s(uv_index) +
+    s(air_quality_index) +
+    population_density +
+    healthcare_budget,
+  family = nb(),
+  data = df
+)
+
+
+```
+
+# Scenario Simulations
+
+```{r}
+# Simulated future climate impact scenarios
+#Baseline
+case0 <- test_data
+
+pred_case0_rf <- predict(rf_fit, new_data = case0) %>% 
+  bind_cols(case0) %>% 
+  mutate(scenario = "Baseline")
+
+pred_case0_p <- predict(poisson_fit, new_data = case0) %>% 
+  bind_cols(case0) %>% 
+  mutate(scenario = "Baseline")
+
+#Case 1: Just temp
+
+case1 <- test_data %>%
+  mutate(avg_temp_c_lag1 = avg_temp_c_lag1 + 10)
+
+pred_case1_rf <- predict(rf_fit, new_data = case1) %>%
+  bind_cols(case1) %>%
+  mutate(scenario = "Warming Only")
+
+pred_case1_p <- predict(poisson_fit, new_data = case1) %>%
+  bind_cols(case1) %>%
+  mutate(scenario = "Warming Only")
+
+# Case 2: Temp and Precip
+
+set.seed(209)
+case2 <- test_data %>%
+  mutate(
+    avg_temp_c_lag1 = avg_temp_c_lag1 + 10,
+    precipitation_mm_lag1 = precipitation_mm_lag1 * (1 + rnorm(n(), mean = 0, sd = 0.2))
+  )
+
+pred_case2_rf <- predict(rf_fit, new_data = case2) %>%
+  bind_cols(case2) %>%
+  mutate(scenario = "Warming + Precipitation")
+
+pred_case2_p <- predict(poisson_fit, new_data = case2) %>%
+  bind_cols(case2) %>%
+  mutate(scenario = "Warming + Precipitation")
+
+# Case 3: ALL HELL BREAKS LOOSE KABOOM WOOWOWOJFEJGNK
+set.seed(209)
+case3 <- test_data %>%
+  mutate(
+    avg_temp_c_lag1 = avg_temp_c_lag1 + 10,
+    precipitation_mm_lag1 = precipitation_mm_lag1 * (1 + rnorm(n(), mean = 0, sd = 0.2)),
+    uv_index = uv_index + 3,
+    air_quality_index = air_quality_index + 10
+  )
+
+pred_case3_rf <- predict(rf_fit, new_data = case3)  %>%
+  bind_cols(case3) %>%
+  mutate(scenario = "Full Scale")
+
+pred_case3_p <- predict(poisson_fit, new_data = case3)  %>%
+  bind_cols(case3) %>%
+  mutate(scenario = "Full Scale")
+
+all_preds_rf <- bind_rows(pred_case0_rf, pred_case1_rf, pred_case2_rf, pred_case3_rf)
+all_preds_p <- bind_rows(pred_case0_p, pred_case1_p, pred_case2_p, pred_case3_p)
+
+summary_results_rf <- all_preds_rf %>%
+  group_by(scenario) %>%
+  summarise(
+    mean_predicted_cases = mean(.pred),
+    total_predicted_cases = sum(.pred)
+  )
+
+summary_results_p <- all_preds_p %>%
+  group_by(scenario) %>%
+  summarise(
+    mean_predicted_cases = mean(.pred),
+    total_predicted_cases = sum(.pred)
+  )
+
+```
+
+# Results Summary
+
+Summarize model comparisons and scenario predictions using embedded tables.
+
+```{r}
+# Get baseline total
+baseline_total <- summary_results_rf %>%
+  filter(scenario == "Baseline") %>%
+  pull(total_predicted_cases)
+
+# Calculate relative change
+summary_results_rf <- summary_results_rf %>%
+  mutate(
+    percent_change = 100 * (total_predicted_cases - baseline_total) / baseline_total
+  )
+
+print(summary_results_rf)
+
+ggplot(all_preds_rf, aes(x = scenario, y = .pred, fill = scenario)) +
+  geom_boxplot(alpha = 0.7, outlier.size = 0.5) +
+  labs(
+    title = "Distribution of Predicted Dengue Cases Across Scenarios",
+    x = "Scenario",
+    y = "Predicted Dengue Cases"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+##Poisson 
+
+
+## GAM-NB
+# Simulate scenarios using the GAM-NB dengue model
+sim_dengue_baseline <- simulate_gam_nb(gam_nb_dengue, df, "baseline")
+sim_dengue_case1    <- simulate_gam_nb(gam_nb_dengue, df, "warming")
+sim_dengue_case2    <- simulate_gam_nb(gam_nb_dengue, df, "rainfall")
+sim_dengue_case3    <- simulate_gam_nb(gam_nb_dengue, df, "extreme")
+sim_dengue_case4    <- simulate_gam_nb(gam_nb_dengue, df, "budget")
+
+# Create summary table
+summary_gamnb_dengue <- tibble::tibble(
+  scenario = c(
+    "Baseline", 
+    "Case 1: Warming", 
+    "Case 2: Warm + Precipitation", 
+    "Case 3: Extreme Climate", 
+    "Case 4: Budget Increase"
+  ),
+  mean_predicted_cases = c(
+    mean(sim_dengue_baseline),
+    mean(sim_dengue_case1),
+    mean(sim_dengue_case2),
+    mean(sim_dengue_case3),
+    mean(sim_dengue_case4)
+  ),
+  total_predicted_cases = c(
+    sum(sim_dengue_baseline),
+    sum(sim_dengue_case1),
+    sum(sim_dengue_case2),
+    sum(sim_dengue_case3),
+    sum(sim_dengue_case4)
+  )
+)
+
+# Calculate % change relative to baseline
+baseline_total <- summary_gamnb_dengue %>%
+  filter(scenario == "Baseline") %>%
+  pull(total_predicted_cases)
+
+summary_gamnb_dengue <- summary_gamnb_dengue %>%
+  mutate(
+    percent_change = 100 * (total_predicted_cases - baseline_total) / baseline_total
+  )
+
+# Print the summary
+print(summary_gamnb_dengue)
+
+```
