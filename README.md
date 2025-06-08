@@ -47,3 +47,23 @@ How to Run
 3. Read in .csv file
 4. Render via the "Render" button or with `quarto::quarto_render()`
 
+Team Contributions
+-------------------
+This project was a collaborative effort between two members, combining statistical expertise, modeling, and climate-health research.
+
+Makena Grigsby
+-------------------
+- Led data cleaning, transformation, and feature engineering
+- Conducted exploratory data analysis (EDA) on seasonal trends and climate–disease associations
+- Investigated ecological modeling strategies applicable to public health
+- Implemented and evaluated the GAM–Negative Binomial (GAM-NB) model for malaria and dengue
+- Computed and interpreted model evaluation metrics (RMSE, R²)
+
+Sharvee Joshi
+-------------------
+- Conducted background research on malaria, dengue, and climate-disease dynamics
+- Cleaned data by removing outlier countries and creating lagged climate predictors
+- Assembled the literature review and coordinated slide presentation design
+- Built initial Poisson and Random Forest models
+- Generated spatial visualizations and contributed to interpreting results
+- Summarized model performance using RMSE and R² metrics
