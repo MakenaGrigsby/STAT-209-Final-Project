@@ -16,6 +16,7 @@ narrative explanation.
 - STAT_209_Final_Project_Report.pdf: Formal project report summarizing objectives, methods, results, and
 conclusions.
 - README.pdf: Project documentation.
+- STAT_209_Final_Presentation.pdf: Slides for Final Presentation.
 
 Simulated Scenarios
 -------------------
